@@ -1,0 +1,26 @@
+version: '3.8'
+
+services:
+  api:
+    image: 754724220380.dkr.ecr.ap-southeast-2.amazonaws.com/watchme-profiler-api:latest
+    container_name: profiler-api
+    ports:
+      - "8051:8051"
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - GROQ_API_KEY=${GROQ_API_KEY}
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_KEY=${SUPABASE_KEY}
+    restart: always
+    networks:
+      - watchme-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8051/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+networks:
+  watchme-network:
+    external: true
