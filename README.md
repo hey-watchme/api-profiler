@@ -83,9 +83,9 @@ This API provides psychological profiling by analyzing aggregated audio data usi
 | └ Health Check | `/health` | Docker healthcheck |
 | | | |
 | **☁️ AWS ECR** | | |
-| └ Repository Name | `watchme-profiler-api` | ✅ Unified naming |
+| └ Repository Name | `watchme-profiler` | ✅ ECR repository |
 | └ Region | ap-southeast-2 (Sydney) | |
-| └ URI | `754724220380.dkr.ecr.ap-southeast-2.amazonaws.com/watchme-profiler-api:latest` | |
+| └ URI | `754724220380.dkr.ecr.ap-southeast-2.amazonaws.com/watchme-profiler:latest` | |
 | | | |
 | **⚙️ systemd** | | |
 | └ Service Name | `profiler-api.service` | docker-compose management |
