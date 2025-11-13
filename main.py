@@ -184,6 +184,8 @@ async def spot_profiler(request: SpotProfilerRequest):
             'recorded_at': request.recorded_at,
             'vibe_score': analysis_result.get('vibe_score'),
             'profile_result': analysis_result,  # Save full analysis as JSONB
+            'summary': analysis_result.get('summary'),  # Dashboard summary (Japanese)
+            'behavior': analysis_result.get('behavior'),  # Detected behaviors (comma-separated)
             'llm_model': f"{CURRENT_PROVIDER}/{CURRENT_MODEL}"
         }
 
