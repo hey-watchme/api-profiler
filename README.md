@@ -241,15 +241,24 @@ CREATE TABLE spot_aggregators (
 CREATE TABLE spot_results (
   device_id TEXT NOT NULL,
   recorded_at TIMESTAMPTZ NOT NULL,  -- UTC
-  vibe_score INTEGER CHECK (vibe_score >= -100 AND vibe_score <= 100),
-  vibe_summary TEXT,
-  vibe_behavior TEXT,
-  vibe_scorer_result JSONB,
-  vibe_analyzed_at TIMESTAMPTZ,
+  vibe_score DOUBLE PRECISION NULL,
+  profile_result JSONB NOT NULL,     -- Full analysis result
   created_at TIMESTAMPTZ DEFAULT NOW(),
+  llm_model TEXT NULL,
   PRIMARY KEY (device_id, recorded_at)
 );
 ```
+
+**Saved Fields:**
+- `vibe_score`: Psychological score (-100 to +100)
+- `profile_result`: Complete analysis result (JSONB)
+  - `summary`: Situation summary
+  - `psychological_analysis`: Mood state, description, emotion changes
+  - `behavioral_analysis`: Detected activities, behavior pattern, situation context
+  - `acoustic_metrics`: Speech ratio, loudness, voice stability, pitch variability
+  - `key_observations`: Notable findings
+- `llm_model`: Model used (e.g., "groq/openai/gpt-oss-120b")
+- `created_at`: Auto-generated timestamp
 
 ---
 
@@ -342,17 +351,41 @@ supabase==2.3.4
 ## 📝 Changelog
 
 ### v1.0.0 (2025-11-13)
-- **Breaking Change**: New Profiler API created (separated from Scorer)
-- **Breaking Change**: Input table changed to `spot_aggregators.prompt`
-- **Breaking Change**: Output table changed to `spot_results`
-- Request parameter changed: `date` + `time_block` → `recorded_at` (UTC timestamp)
-- Microservice architecture compliance: API reads data from DB itself
-- Endpoint name: `/analyze-timeblock` → `/spot-profiler`
-- Unified naming convention:
-  - Column naming alignment with new architecture
-- UTC-unified architecture migration
+
+**Initial Release - Production Deployment Completed** ✅
+
+**Architecture:**
+- New Profiler API created (separated from Scorer API)
+- Microservice architecture compliant
+- UTC-unified time management with `recorded_at`
+- CI/CD auto-deploy pipeline (GitHub Actions → ECR → EC2)
+
+**API Changes:**
+- Input: `spot_aggregators.prompt` (reads from Supabase)
+- Output: `spot_results` (writes to Supabase)
+- Request parameter: `recorded_at` (UTC timestamp)
+- Endpoint: `/spot-profiler`
+
+**Database Schema:**
+- Table: `spot_results`
+- Columns: `device_id`, `recorded_at`, `vibe_score`, `profile_result` (JSONB), `llm_model`, `created_at`
+- Removed deprecated columns: `local_date`, `local_time`, `behavior_score`, `emotion_score`, `composite_score`
+- RLS disabled (internal API only)
+
+**Infrastructure:**
+- Container: `profiler-api` (port 8051)
+- ECR: `watchme-profiler`
+- systemd: `profiler-api.service`
+- Nginx: `/profiler/` → `http://localhost:8051/`
+- Health check: `/health`
+
+**Testing:**
+- Production test completed successfully
+- Database save verified
+- LLM model: Groq OpenAI GPT-OSS-120B
 
 ---
 
 **Developer**: WatchMe
 **Version**: 1.0.0
+**Status**: ✅ Production Ready
