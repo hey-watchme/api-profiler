@@ -184,7 +184,6 @@ async def spot_profiler(request: SpotProfilerRequest):
             'recorded_at': request.recorded_at,
             'vibe_score': analysis_result.get('vibe_score'),
             'profile_result': analysis_result,  # Save full analysis as JSONB
-            'profiled_at': datetime.now().isoformat(),
             'llm_model': f"{CURRENT_PROVIDER}/{CURRENT_MODEL}"
         }
 
