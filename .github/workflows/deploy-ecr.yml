@@ -1,0 +1,198 @@
+# Profiler API - ECR & EC2 Auto Deploy Workflow
+name: Deploy to Amazon ECR and EC2
+
+# Trigger conditions
+on:
+  # Execute on push to main branch
+  push:
+    branches: [ "main" ]
+  # Allow manual execution
+  workflow_dispatch:
+
+# Environment variables
+env:
+  AWS_REGION: ap-southeast-2
+  ECR_REPOSITORY: watchme-profiler
+  SERVICE_NAME: profiler-api
+
+# Job definitions
+jobs:
+  # Job 1: CI - Push Docker image to ECR
+  deploy:
+    name: Build and Push to ECR
+    runs-on: ubuntu-latest
+
+    steps:
+    # Step 1: Checkout code
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    # Step 2: Configure AWS credentials
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    # Step 3: Login to ECR
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v2
+
+    # Step 4: Setup Docker Buildx (multi-platform support)
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    # Step 5: Build, tag, and push Docker image (ARM64 support)
+    - name: Build, tag, and push image to Amazon ECR
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        IMAGE_TAG: ${{ github.sha }}
+      run: |
+        # Build Docker image for ARM64 architecture
+        docker buildx build \
+          --platform linux/arm64 \
+          --push \
+          -f Dockerfile.prod \
+          -t $ECR_REGISTRY/${{ env.ECR_REPOSITORY }}:$IMAGE_TAG \
+          -t $ECR_REGISTRY/${{ env.ECR_REPOSITORY }}:latest \
+          .
+
+        echo "✅ Image pushed to ECR:"
+        echo "  - $ECR_REGISTRY/${{ env.ECR_REPOSITORY }}:$IMAGE_TAG"
+        echo "  - $ECR_REGISTRY/${{ env.ECR_REPOSITORY }}:latest"
+
+    # Step 6: Deployment success notification
+    - name: Deploy Success Notification
+      if: success()
+      run: |
+        echo "🎉 Deployment to ECR succeeded!"
+        echo "📦 Repository: ${{ env.ECR_REPOSITORY }}"
+        echo "🏷️ Image Tag: ${{ github.sha }}"
+        echo "📍 Region: ${{ env.AWS_REGION }}"
+
+    # Step 7: Deployment failure notification
+    - name: Deploy Failure Notification
+      if: failure()
+      run: |
+        echo "❌ Deployment to ECR failed!"
+        echo "Please check the logs above for details."
+
+  # Job 2: CD - Auto deploy to EC2
+  deploy-to-ec2:
+    name: Deploy to EC2
+    runs-on: ubuntu-latest
+    # Important: Only execute after deploy job succeeds
+    needs: deploy
+
+    steps:
+    # Step 1: Setup SSH agent
+    - name: Setup SSH Agent
+      uses: webfactory/ssh-agent@v0.9.0
+      with:
+        ssh-private-key: ${{ secrets.EC2_SSH_KEY }}
+
+    # Step 2: Add EC2 to known hosts (security improvement)
+    - name: Add EC2 to known hosts
+      run: |
+        mkdir -p ~/.ssh
+        ssh-keyscan -H 3.24.16.82 >> ~/.ssh/known_hosts
+
+    # Step 3: Create/Update .env file on EC2
+    - name: Create/Update .env file on EC2
+      env:
+        OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+        SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+        SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+      run: |
+        ssh ubuntu@3.24.16.82 << ENDSSH
+          cd /home/ubuntu/profiler-api
+          echo "OPENAI_API_KEY=${OPENAI_API_KEY}" > .env
+          echo "GROQ_API_KEY=${GROQ_API_KEY}" >> .env
+          echo "SUPABASE_URL=${SUPABASE_URL}" >> .env
+          echo "SUPABASE_KEY=${SUPABASE_KEY}" >> .env
+          echo "✅ .env file created/updated successfully"
+        ENDSSH
+
+    # Step 4: Deploy to EC2 instance
+    - name: Deploy to EC2 instance
+      run: |
+        echo "🚀 Starting deployment to EC2..."
+
+        # SSH to EC2 and execute deployment commands
+        ssh ubuntu@3.24.16.82 << 'ENDSSH'
+          set -e
+          echo "📦 Starting deployment..."
+
+          # Stop and remove existing container
+          echo "🛑 Stopping existing container..."
+          docker rm -f profiler-api 2>/dev/null || true
+
+          # Login to ECR
+          echo "🔐 Logging in to ECR..."
+          aws ecr get-login-password --region ap-southeast-2 | \
+            docker login --username AWS --password-stdin 754724220380.dkr.ecr.ap-southeast-2.amazonaws.com
+
+          # Pull latest image
+          echo "📥 Pulling latest image..."
+          docker pull 754724220380.dkr.ecr.ap-southeast-2.amazonaws.com/watchme-profiler:latest
+
+          # Restart systemd service
+          echo "🔄 Restarting service..."
+          sudo systemctl restart profiler-api
+
+          # Check service status
+          echo "📊 Checking service status..."
+          sleep 5
+          if sudo systemctl is-active --quiet profiler-api; then
+            echo "✅ Service profiler-api is running"
+          else
+            echo "❌ Service profiler-api failed to start"
+            sudo journalctl -u profiler-api -n 50
+            exit 1
+          fi
+
+          # Health check
+          echo "🏥 Running health check..."
+          sleep 3
+          if curl -f http://localhost:8051/health; then
+            echo "✅ Health check passed"
+          else
+            echo "❌ Health check failed"
+            exit 1
+          fi
+        ENDSSH
+
+        echo "✅ EC2 deployment completed successfully!"
+
+    # Step 5: Verify external URL
+    - name: Verify External URL
+      run: |
+        echo "🔍 Verifying external URL..."
+        sleep 5
+        if curl -f https://api.hey-watch.me/profiler/health; then
+          echo "✅ External URL is accessible"
+          curl https://api.hey-watch.me/profiler/health | jq .
+        else
+          echo "❌ External URL verification failed"
+          exit 1
+        fi
+
+    # Step 6: Deployment success notification
+    - name: Deployment Success Notification
+      if: success()
+      run: |
+        echo "🎉 Full CI/CD pipeline completed successfully!"
+        echo "📦 Service: ${{ env.SERVICE_NAME }}"
+        echo "🌐 URL: https://api.hey-watch.me/profiler/"
+        echo "🏷️ Version: ${{ github.sha }}"
+        echo "🤖 LLM Provider: Groq (openai/gpt-oss-120b)"
+
+    # Step 7: Deployment failure notification
+    - name: Deployment Failure Notification
+      if: failure()
+      run: |
+        echo "❌ EC2 deployment failed!"
+        echo "Please check the SSH connection and server logs."
