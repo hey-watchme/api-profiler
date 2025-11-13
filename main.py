@@ -182,11 +182,10 @@ async def spot_profiler(request: SpotProfilerRequest):
         spot_results_data = {
             'device_id': request.device_id,
             'recorded_at': request.recorded_at,
-            'vibe_summary': analysis_result.get('summary'),
-            'vibe_behavior': analysis_result.get('behavior'),
             'vibe_score': analysis_result.get('vibe_score'),
-            'vibe_scorer_result': analysis_result,  # Save as JSONB
-            'vibe_analyzed_at': datetime.now().isoformat()
+            'profile_result': analysis_result,  # Save full analysis as JSONB
+            'profiled_at': datetime.now().isoformat(),
+            'llm_model': f"{CURRENT_PROVIDER}/{CURRENT_MODEL}"
         }
 
         # Save to spot_results table (UPSERT)
