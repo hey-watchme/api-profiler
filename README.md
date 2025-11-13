@@ -243,6 +243,8 @@ CREATE TABLE spot_results (
   recorded_at TIMESTAMPTZ NOT NULL,  -- UTC
   vibe_score DOUBLE PRECISION NULL,
   profile_result JSONB NOT NULL,     -- Full analysis result
+  summary TEXT,                       -- Dashboard display summary (Japanese)
+  behavior TEXT,                      -- Detected behaviors (comma-separated, 3 items)
   created_at TIMESTAMPTZ DEFAULT NOW(),
   llm_model TEXT NULL,
   PRIMARY KEY (device_id, recorded_at)
@@ -251,12 +253,15 @@ CREATE TABLE spot_results (
 
 **Saved Fields:**
 - `vibe_score`: Psychological score (-100 to +100)
+- `summary`: Situation summary in Japanese (2-3 sentences, e.g., "朝食の時間。家族と一緒に食事をしている。")
+- `behavior`: 3 key behaviors, comma-separated (e.g., "会話, 食事, 家族団らん")
 - `profile_result`: Complete analysis result (JSONB)
-  - `summary`: Situation summary
-  - `psychological_analysis`: Mood state, description, emotion changes
-  - `behavioral_analysis`: Detected activities, behavior pattern, situation context
+  - `summary`: Situation summary (same as TEXT column)
+  - `behavior`: Detected behaviors (same as TEXT column)
+  - `psychological_analysis`: Mood state, description (Japanese), emotion changes (Japanese)
+  - `behavioral_analysis`: Detected activities, behavior pattern (Japanese), situation context (Japanese)
   - `acoustic_metrics`: Speech ratio, loudness, voice stability, pitch variability
-  - `key_observations`: Notable findings
+  - `key_observations`: Notable findings (Japanese array)
 - `llm_model`: Model used (e.g., "groq/openai/gpt-oss-120b")
 - `created_at`: Auto-generated timestamp
 
@@ -350,6 +355,44 @@ supabase==2.3.4
 
 ## 📝 Changelog
 
+### v1.1.0 (2025-11-13)
+
+**Japanese Output + Behavior Field** 🎉
+
+**Purpose**: Dashboard display enhancement with Japanese text and behavior tags
+
+**Changes:**
+1. **Added `summary` and `behavior` columns** to `spot_results` table
+   - `summary` (TEXT): Japanese description for dashboard (2-3 sentences)
+   - `behavior` (TEXT): 3 key behaviors, comma-separated (e.g., "会話, 食事, 家族団らん")
+
+2. **Updated LLM output format**
+   - All text fields now in Japanese (summary, mood_description, behavior_pattern, etc.)
+   - Added `behavior` field in LLM response
+   - Prompt instructs to prioritize "会話" when speech is detected
+
+3. **Database save enhancement**
+   - Extract `summary` from LLM response → save to `summary` column
+   - Extract `behavior` from LLM response → save to `behavior` column
+   - Full analysis still saved in `profile_result` (JSONB)
+
+**Benefits:**
+- Direct display in iOS app/Web dashboard (no translation needed)
+- User-friendly Japanese descriptions
+- Easy behavior pattern visualization
+
+**Testing:**
+- Production test completed with real data
+- Database save verified (summary and behavior columns populated)
+- Example output:
+  - summary: "幼稚園の年長さんが食べ物や遊びについて自分で話している様子です。"
+  - behavior: "会話, 食事, 遊び"
+
+**Modified Files:**
+- `main.py`: Added summary and behavior extraction
+
+---
+
 ### v1.0.0 (2025-11-13)
 
 **Initial Release - Production Deployment Completed** ✅
@@ -387,5 +430,5 @@ supabase==2.3.4
 ---
 
 **Developer**: WatchMe
-**Version**: 1.0.0
+**Version**: 1.1.0
 **Status**: ✅ Production Ready
