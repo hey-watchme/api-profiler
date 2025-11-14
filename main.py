@@ -138,10 +138,10 @@ async def spot_profiler(request: SpotProfilerRequest):
         # Get Supabase client
         supabase = get_supabase_client()
 
-        # Fetch prompt from spot_aggregators table
+        # Fetch prompt and local_date from spot_aggregators table
         print("📥 Fetching prompt from spot_aggregators table...")
         try:
-            result = supabase.client.table('spot_aggregators').select('prompt').eq('device_id', request.device_id).eq('recorded_at', request.recorded_at).execute()
+            result = supabase.client.table('spot_aggregators').select('prompt, local_date').eq('device_id', request.device_id).eq('recorded_at', request.recorded_at).execute()
 
             if not result.data or len(result.data) == 0:
                 raise HTTPException(
@@ -150,6 +150,8 @@ async def spot_profiler(request: SpotProfilerRequest):
                 )
 
             prompt = result.data[0].get('prompt')
+            local_date = result.data[0].get('local_date')
+
             if not prompt:
                 raise HTTPException(
                     status_code=404,
@@ -157,6 +159,7 @@ async def spot_profiler(request: SpotProfilerRequest):
                 )
 
             print(f"  ✅ Prompt fetched successfully: {len(prompt)} chars")
+            print(f"  ✅ Local date: {local_date}")
         except HTTPException:
             raise
         except Exception as e:
@@ -188,6 +191,10 @@ async def spot_profiler(request: SpotProfilerRequest):
             'behavior': analysis_result.get('behavior'),  # Detected behaviors (comma-separated)
             'llm_model': f"{CURRENT_PROVIDER}/{CURRENT_MODEL}"
         }
+
+        # Add local_date if available
+        if local_date:
+            spot_results_data['local_date'] = local_date
 
         # Save to spot_results table (UPSERT)
         print("💾 Saving to spot_results table...")
