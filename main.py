@@ -50,6 +50,12 @@ class SpotProfilerRequest(BaseModel):
     recorded_at: str  # UTC timestamp (ISO 8601 format)
 
 
+class DailyProfilerRequest(BaseModel):
+    """Daily profiler analysis request"""
+    device_id: str
+    local_date: str  # YYYY-MM-DD format
+
+
 def extract_json_from_response(raw_response: str) -> Dict[str, Any]:
     """Extract JSON from LLM response"""
     content = raw_response.strip()
@@ -234,6 +240,119 @@ async def spot_profiler(request: SpotProfilerRequest):
             status_code=500,
             detail={
                 "message": "Error occurred during spot profiler analysis",
+                "error_details": error_details
+            }
+        )
+
+
+@app.post("/daily-profiler")
+async def daily_profiler(request: DailyProfilerRequest):
+    """
+    Daily profiler: Analyze daily aggregated data and save to daily_results table
+
+    Flow:
+    1. Fetch prompt from daily_aggregators table
+    2. Execute LLM analysis
+    3. Save result to daily_results table
+    """
+    try:
+        print(f"\n📅 Daily profiler analysis started")
+        print(f"  - Device ID: {request.device_id}")
+        print(f"  - Local Date: {request.local_date}")
+
+        # Get Supabase client
+        supabase = get_supabase_client()
+
+        # Fetch prompt from daily_aggregators table
+        print("📥 Fetching prompt from daily_aggregators table...")
+        try:
+            result = supabase.client.table('daily_aggregators').select('prompt').eq('device_id', request.device_id).eq('local_date', request.local_date).execute()
+
+            if not result.data or len(result.data) == 0:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"No data found in daily_aggregators: device_id={request.device_id}, local_date={request.local_date}"
+                )
+
+            prompt = result.data[0].get('prompt')
+
+            if not prompt:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"prompt field is empty: device_id={request.device_id}, local_date={request.local_date}"
+                )
+
+            print(f"  ✅ Prompt fetched successfully: {len(prompt)} chars")
+        except HTTPException:
+            raise
+        except Exception as e:
+            print(f"❌ Failed to fetch prompt: {e}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Prompt fetch error: {str(e)}"
+            )
+
+        # LLM processing (provider abstraction)
+        print(f"📤 Sending to LLM... ({CURRENT_PROVIDER}/{CURRENT_MODEL})")
+        analysis_result = await call_llm_with_retry(prompt)
+        print(f"✅ LLM processing completed")
+
+        # Display result in terminal
+        print("\n" + "="*60)
+        print("📊 Daily analysis result:")
+        print("="*60)
+        print(json.dumps(analysis_result, ensure_ascii=False, indent=2))
+        print("="*60 + "\n")
+
+        # Prepare data for daily_results table
+        daily_results_data = {
+            'device_id': request.device_id,
+            'local_date': request.local_date,
+            'vibe_score': analysis_result.get('vibe_score'),
+            'profile_result': analysis_result,  # Save full analysis as JSONB
+            'summary': analysis_result.get('summary'),  # Dashboard summary (Japanese)
+            'behavior': analysis_result.get('behavior'),  # Detected behaviors (comma-separated)
+            'llm_model': f"{CURRENT_PROVIDER}/{CURRENT_MODEL}"
+        }
+
+        # Save to daily_results table (UPSERT)
+        print("💾 Saving to daily_results table...")
+        try:
+            result = supabase.client.table('daily_results').upsert(daily_results_data).execute()
+            print(f"✅ Successfully saved to daily_results table")
+            save_success = True
+        except Exception as e:
+            print(f"❌ Failed to save to daily_results table: {e}")
+            save_success = False
+            # Return response even if save fails
+
+        return {
+            "status": "success" if save_success else "partial_success",
+            "message": "Daily profiler analysis completed" + (" (DB save successful)" if save_success else " (DB save failed)"),
+            "device_id": request.device_id,
+            "local_date": request.local_date,
+            "analysis_result": analysis_result,
+            "database_save": save_success,
+            "processed_at": datetime.now().isoformat(),
+            "model_used": f"{CURRENT_PROVIDER}/{CURRENT_MODEL}"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        error_details = {
+            "error_type": type(e).__name__,
+            "error_message": str(e),
+            "traceback": traceback.format_exc()
+        }
+
+        print(f"❌ ERROR in daily_profiler: {error_details}")
+
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "message": "Error occurred during daily profiler analysis",
                 "error_details": error_details
             }
         )
