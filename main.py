@@ -144,10 +144,10 @@ async def spot_profiler(request: SpotProfilerRequest):
         # Get Supabase client
         supabase = get_supabase_client()
 
-        # Fetch prompt and local_date from spot_aggregators table
+        # Fetch prompt, local_date, and local_time from spot_aggregators table
         print("📥 Fetching prompt from spot_aggregators table...")
         try:
-            result = supabase.client.table('spot_aggregators').select('prompt, local_date').eq('device_id', request.device_id).eq('recorded_at', request.recorded_at).execute()
+            result = supabase.client.table('spot_aggregators').select('prompt, local_date, local_time').eq('device_id', request.device_id).eq('recorded_at', request.recorded_at).execute()
 
             if not result.data or len(result.data) == 0:
                 raise HTTPException(
@@ -157,6 +157,7 @@ async def spot_profiler(request: SpotProfilerRequest):
 
             prompt = result.data[0].get('prompt')
             local_date = result.data[0].get('local_date')
+            local_time = result.data[0].get('local_time')
 
             if not prompt:
                 raise HTTPException(
@@ -166,6 +167,7 @@ async def spot_profiler(request: SpotProfilerRequest):
 
             print(f"  ✅ Prompt fetched successfully: {len(prompt)} chars")
             print(f"  ✅ Local date: {local_date}")
+            print(f"  ✅ Local time: {local_time}")
         except HTTPException:
             raise
         except Exception as e:
@@ -198,9 +200,11 @@ async def spot_profiler(request: SpotProfilerRequest):
             'llm_model': f"{CURRENT_PROVIDER}/{CURRENT_MODEL}"
         }
 
-        # Add local_date if available
+        # Add local_date and local_time if available
         if local_date:
             spot_results_data['local_date'] = local_date
+        if local_time:
+            spot_results_data['local_time'] = local_time
 
         # Save to spot_results table (UPSERT)
         print("💾 Saving to spot_results table...")
@@ -304,6 +308,60 @@ async def daily_profiler(request: DailyProfilerRequest):
         print(json.dumps(analysis_result, ensure_ascii=False, indent=2))
         print("="*60 + "\n")
 
+        # Fetch spot_results to generate vibe_scores array
+        print("📥 Fetching spot_results for vibe_scores array...")
+        try:
+            spot_results_response = supabase.client.table('spot_results').select(
+                'recorded_at, local_time, vibe_score'
+            ).eq(
+                'device_id', request.device_id
+            ).eq(
+                'local_date', request.local_date
+            ).order('recorded_at').execute()
+
+            vibe_scores_array = []
+            if spot_results_response.data:
+                for spot in spot_results_response.data:
+                    local_time = spot.get('local_time')
+                    vibe_score = spot.get('vibe_score')
+
+                    if local_time and vibe_score is not None:
+                        # Extract HH:MM from local_time (YYYY-MM-DD HH:MM:SS)
+                        time_str = local_time.split(' ')[1] if ' ' in local_time else local_time
+                        time_parts = time_str.split(':')
+                        if len(time_parts) >= 2:
+                            time_hhmm = f"{time_parts[0]}:{time_parts[1]}"
+                            vibe_scores_array.append({
+                                "time": time_hhmm,
+                                "score": vibe_score
+                            })
+
+                print(f"  ✅ Generated vibe_scores array with {len(vibe_scores_array)} data points")
+
+                # Generate burst_events (significant score changes)
+                burst_events = []
+                for i in range(1, len(vibe_scores_array)):
+                    prev_score = vibe_scores_array[i-1]['score']
+                    curr_score = vibe_scores_array[i]['score']
+                    score_diff = curr_score - prev_score
+
+                    # Detect burst event (score change > 30)
+                    if abs(score_diff) > 30:
+                        burst_events.append({
+                            "time": vibe_scores_array[i]['time'],
+                            "score": curr_score,
+                            "change": score_diff
+                        })
+
+                print(f"  ✅ Generated burst_events with {len(burst_events)} events")
+            else:
+                print(f"  ⚠️ No spot_results found for vibe_scores generation")
+                burst_events = []
+        except Exception as e:
+            print(f"❌ Failed to fetch spot_results: {e}")
+            vibe_scores_array = []
+            burst_events = []
+
         # Prepare data for daily_results table
         daily_results_data = {
             'device_id': request.device_id,
@@ -312,6 +370,9 @@ async def daily_profiler(request: DailyProfilerRequest):
             'profile_result': analysis_result,  # Save full analysis as JSONB
             'summary': analysis_result.get('summary'),  # Dashboard summary (Japanese)
             'behavior': analysis_result.get('behavior'),  # Detected behaviors (comma-separated)
+            'vibe_scores': vibe_scores_array,  # Time-based vibe scores array (not 48-block based)
+            'burst_events': burst_events,  # Significant score change events
+            'processed_count': len(vibe_scores_array),  # Number of processed recordings
             'llm_model': f"{CURRENT_PROVIDER}/{CURRENT_MODEL}"
         }
 
