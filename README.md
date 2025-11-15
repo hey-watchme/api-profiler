@@ -47,8 +47,8 @@ This API provides psychological profiling by analyzing aggregated audio data usi
 
 ### Main Features
 
-- **Spot Profiler**: Single recording analysis (`/spot-profiler`)
-- **Daily Profiler**: Daily cumulative analysis (`/daily-profiler`) 🚧 Coming soon
+- **Spot Profiler**: Single recording analysis (`/spot-profiler`) ✅ Production
+- **Daily Profiler**: Daily cumulative analysis (`/daily-profiler`) ✅ Production (2025-11-15)
 - **Weekly Profiler**: Weekly trend analysis (`/weekly-profiler`) 🚧 Coming soon
 - **Monthly Profiler**: Monthly long-term analysis (`/monthly-profiler`) 🚧 Coming soon
 - **Multiple LLM Provider Support**: Easy switching between OpenAI, Groq, etc.
@@ -71,8 +71,8 @@ This API provides psychological profiling by analyzing aggregated audio data usi
 | | | |
 | **🔌 API Internal Endpoints** | | |
 | └ Health Check | `/health` | GET |
-| └ **Spot Profiler** | `/spot-profiler` | POST - Called by Lambda |
-| └ **Daily Profiler** | `/daily-profiler` | POST - Daily summary (🚧 Coming soon) |
+| └ **Spot Profiler** | `/spot-profiler` | POST - Called by audio-worker Lambda |
+| └ **Daily Profiler** | `/daily-profiler` | POST - Called by dashboard-analysis-worker Lambda ✅ |
 | └ **Weekly Profiler** | `/weekly-profiler` | POST - Weekly analysis (🚧 Coming soon) |
 | └ **Monthly Profiler** | `/monthly-profiler` | POST - Monthly analysis (🚧 Coming soon) |
 | | | |
@@ -98,8 +98,10 @@ This API provides psychological profiling by analyzing aggregated audio data usi
 | └ EC2 Location | `/home/ubuntu/profiler-api` | Production execution directory |
 | | | |
 | **🔗 Caller** | | |
-| └ Lambda Function (Spot) | `watchme-audio-worker` | |
+| └ Lambda Function (Spot) | `watchme-audio-worker` | Spot analysis |
 | └ Call URL (Spot) | ✅ `https://api.hey-watch.me/profiler/spot-profiler` | |
+| └ Lambda Function (Daily) | `watchme-dashboard-analysis-worker` | Daily analysis |
+| └ Call URL (Daily) | ✅ `https://api.hey-watch.me/profiler/daily-profiler` | |
 | └ Environment Variable | `API_BASE_URL=https://api.hey-watch.me` | Inside Lambda |
 
 ---
@@ -144,21 +146,21 @@ See `llm_providers.py` - change `CURRENT_PROVIDER` and `CURRENT_MODEL` constants
 
 ## 📌 API Endpoints
 
-### Active Endpoints
+### Endpoint Status
 
-| Endpoint | Method | Description |
-|----------|---------|-------------|
-| `/health` | GET | Health check |
-| `/spot-profiler` | POST | Spot profiler analysis (single recording) |
-| `/daily-profiler` | POST | Daily profiler analysis (1 day) 🚧 Coming soon |
-| `/weekly-profiler` | POST | Weekly profiler analysis (7 days) 🚧 Coming soon |
-| `/monthly-profiler` | POST | Monthly profiler analysis (30 days) 🚧 Coming soon |
+| Endpoint | Method | Status | Description |
+|----------|---------|--------|-------------|
+| `/health` | GET | ✅ Production | Health check |
+| `/spot-profiler` | POST | ✅ Production | Spot profiler analysis (single recording) |
+| `/daily-profiler` | POST | ✅ Production (2025-11-15) | Daily profiler analysis (1 day) |
+| `/weekly-profiler` | POST | 🚧 Planned | Weekly profiler analysis (7 days) |
+| `/monthly-profiler` | POST | 🚧 Planned | Monthly profiler analysis (30 days) |
 
 ---
 
 ## 🔌 Endpoint Details
 
-### 1. Health Check
+### 1. Health Check ✅
 
 ```bash
 curl https://api.hey-watch.me/profiler/health
@@ -174,7 +176,9 @@ curl https://api.hey-watch.me/profiler/health
 }
 ```
 
-### 2. Spot Profiler
+---
+
+### 2. Spot Profiler ✅
 
 **v1.0.0 Specification**:
 - ✅ `recorded_at` parameter (UTC timestamp)
@@ -211,6 +215,113 @@ curl -X POST https://api.hey-watch.me/profiler/spot-profiler \
   "model_used": "groq/openai/gpt-oss-120b"
 }
 ```
+
+---
+
+### 3. Daily Profiler ✅
+
+**Production** - Since 2025-11-15
+
+```bash
+curl -X POST https://api.hey-watch.me/profiler/daily-profiler \
+  -H "Content-Type: application/json" \
+  -d '{
+    "device_id": "d067d407-cf73-4174-a9c1-d91fb60d64d0",
+    "local_date": "2025-11-15"
+  }'
+```
+
+**Data Flow**:
+```
+daily_aggregators.prompt (from Aggregator API)
+    ↓ LLM Analysis
+daily_results (1 day = 1 record)
+```
+
+**Processing Flow**:
+1. Fetch prompt from `daily_aggregators.prompt`
+2. Execute LLM (Groq/ChatGPT) analysis
+   - Input: 1日分のspot_resultsを集約したプロンプト
+   - Output: 1日の総合的な心理分析
+3. Save result to `daily_results` table
+
+**Response:**
+```json
+{
+  "status": "success",
+  "message": "Daily profiler analysis completed (DB save successful)",
+  "device_id": "d067d407-cf73-4174-a9c1-d91fb60d64d0",
+  "local_date": "2025-11-15",
+  "analysis_result": {
+    "summary": "1日の総合的な心理状態の説明（日本語）",
+    "vibe_score": 15,
+    "behavior": "会話, 作業, 休憩",
+    "profile_result": {
+      "daily_trend": "1日の傾向の説明",
+      "key_moments": ["重要な瞬間1", "重要な瞬間2"],
+      "emotional_stability": "感情の安定性の説明"
+    }
+  },
+  "database_save": true,
+  "processed_at": "2025-11-15T02:00:00.000Z",
+  "model_used": "groq/openai/gpt-oss-120b"
+}
+```
+
+---
+
+### 4. Weekly Profiler 🚧
+
+**Planned** - Phase 4-3
+
+```bash
+curl -X POST https://api.hey-watch.me/profiler/weekly-profiler \
+  -H "Content-Type: application/json" \
+  -d '{
+    "device_id": "d067d407-cf73-4174-a9c1-d91fb60d64d0",
+    "week_start_date": "2025-11-11"
+  }'
+```
+
+**Data Flow**:
+```
+weekly_aggregators.prompt (7 days of daily_results)
+    ↓ LLM Analysis
+weekly_results (1 week = 1 record)
+```
+
+**Processing Flow**:
+1. Fetch prompt from `weekly_aggregators.prompt`
+2. Execute LLM analysis (7日分のdaily_resultsを分析)
+3. Save result to `weekly_results` table
+
+---
+
+### 5. Monthly Profiler 🚧
+
+**Planned** - Phase 4-4
+
+```bash
+curl -X POST https://api.hey-watch.me/profiler/monthly-profiler \
+  -H "Content-Type: application/json" \
+  -d '{
+    "device_id": "d067d407-cf73-4174-a9c1-d91fb60d64d0",
+    "year": 2025,
+    "month": 11
+  }'
+```
+
+**Data Flow**:
+```
+monthly_aggregators.prompt (30 days of daily_results)
+    ↓ LLM Analysis
+monthly_results (1 month = 1 record)
+```
+
+**Processing Flow**:
+1. Fetch prompt from `monthly_aggregators.prompt`
+2. Execute LLM analysis (30日分のdaily_resultsを分析)
+3. Save result to `monthly_results` table
 
 ---
 
@@ -354,6 +465,68 @@ supabase==2.3.4
 ---
 
 ## 📝 Changelog
+
+### v1.2.0 (2025-11-15)
+
+**Daily Profiler Production Release** 🎉
+
+**Purpose**: Complete daily cumulative analysis pipeline with local_date support
+
+**New Features:**
+1. **Daily Profiler Endpoint** (`/daily-profiler`)
+   - Analyzes 1 day of spot recordings
+   - Fetches prompt from `daily_aggregators` table
+   - Saves results to `daily_results` table
+   - Parameter: `local_date` (YYYY-MM-DD format)
+
+2. **local_date Support**
+   - Added `local_date` column to `spot_results` table
+   - Timezone-aware daily aggregation
+   - Consistent date handling across the pipeline
+
+3. **Database Schema Updates**
+   - New table: `daily_results`
+   - Columns: `device_id`, `local_date`, `vibe_score`, `summary`, `behavior`, `profile_result` (JSONB), `llm_model`
+
+4. **Lambda Integration**
+   - Called by `watchme-dashboard-analysis-worker` Lambda function
+   - Triggered via SQS queue after Daily Aggregator completes
+   - Automatic execution on every spot recording completion
+
+**Data Flow:**
+```
+Spot Profiler completes
+  ↓
+SQS: dashboard-summary-queue
+  ↓
+Lambda: dashboard-summary-worker
+  ↓
+Aggregator API (/aggregator/daily)
+  → daily_aggregators table
+  ↓
+SQS: dashboard-analysis-queue
+  ↓
+Lambda: dashboard-analysis-worker
+  ↓
+Profiler API (/profiler/daily-profiler)
+  → daily_results table
+```
+
+**Benefits:**
+- Complete daily psychological analysis available
+- Real-time daily summary updates
+- Seamless integration with existing pipeline
+- Supports multiple timezones via local_date
+
+**Modified Files:**
+- `main.py`: Added `DailyProfilerRequest` and `/daily-profiler` endpoint
+
+**Testing:**
+- Production deployment completed
+- Lambda integration verified
+- Database save tested
+
+---
 
 ### v1.1.0 (2025-11-13)
 
