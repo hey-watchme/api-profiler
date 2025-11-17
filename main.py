@@ -217,6 +217,17 @@ async def spot_profiler(request: SpotProfilerRequest):
             save_success = False
             # Return response even if save fails
 
+        # Update spot_aggregators.profiler_status to 'completed'
+        try:
+            supabase.client.table('spot_aggregators').update({
+                'profiler_status': 'completed',
+                'profiler_processed_at': datetime.now().isoformat()
+            }).eq('device_id', request.device_id).eq('recorded_at', request.recorded_at).execute()
+            print(f"✅ Updated spot_aggregators.profiler_status to 'completed' for {request.device_id}/{request.recorded_at}")
+        except Exception as update_error:
+            print(f"⚠️ Warning: Failed to update spot_aggregators.profiler_status: {update_error}")
+            # Continue execution even if status update fails
+
         return {
             "status": "success" if save_success else "partial_success",
             "message": "Spot profiler analysis completed" + (" (DB save successful)" if save_success else " (DB save failed)"),
@@ -239,6 +250,31 @@ async def spot_profiler(request: SpotProfilerRequest):
         }
 
         print(f"❌ ERROR in spot_profiler: {error_details}")
+
+        # Determine error type for database
+        error_type_str = type(e).__name__
+        if 'RateLimitError' in error_type_str or 'rate_limit' in str(e).lower():
+            profiler_status = 'rate_limited'
+            error_type_db = 'rate_limit'
+        elif 'TimeoutError' in error_type_str or 'timeout' in str(e).lower():
+            profiler_status = 'failed'
+            error_type_db = 'timeout'
+        else:
+            profiler_status = 'failed'
+            error_type_db = error_type_str
+
+        # Update spot_aggregators with error information
+        try:
+            supabase = get_supabase_client()
+            supabase.client.table('spot_aggregators').update({
+                'profiler_status': profiler_status,
+                'profiler_error_type': error_type_db,
+                'profiler_error_message': str(e)[:500],  # Limit to 500 chars
+                'profiler_processed_at': datetime.now().isoformat()
+            }).eq('device_id', request.device_id).eq('recorded_at', request.recorded_at).execute()
+            print(f"✅ Updated spot_aggregators with error info: {profiler_status}/{error_type_db}")
+        except Exception as update_error:
+            print(f"⚠️ Warning: Failed to update spot_aggregators error info: {update_error}")
 
         raise HTTPException(
             status_code=500,
