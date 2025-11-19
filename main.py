@@ -56,6 +56,12 @@ class DailyProfilerRequest(BaseModel):
     local_date: str  # YYYY-MM-DD format
 
 
+class WeeklyProfilerRequest(BaseModel):
+    """Weekly profiler analysis request"""
+    device_id: str
+    week_start_date: str  # YYYY-MM-DD format (Monday)
+
+
 def extract_json_from_response(raw_response: str) -> Dict[str, Any]:
     """Extract JSON from LLM response"""
     content = raw_response.strip()
@@ -435,6 +441,123 @@ async def daily_profiler(request: DailyProfilerRequest):
             status_code=500,
             detail={
                 "message": "Error occurred during daily profiler analysis",
+                "error_details": error_details
+            }
+        )
+
+
+@app.post("/weekly-profiler")
+async def weekly_profiler(request: WeeklyProfilerRequest):
+    """
+    Weekly profiler: Analyze weekly aggregated data and save to weekly_results table
+
+    Flow:
+    1. Fetch prompt from weekly_aggregators table
+    2. Execute LLM analysis
+    3. Save result to weekly_results table
+    """
+    try:
+        print(f"\n📅 Weekly profiler analysis started")
+        print(f"  - Device ID: {request.device_id}")
+        print(f"  - Week Start Date: {request.week_start_date}")
+
+        # Get Supabase client
+        supabase = get_supabase_client()
+
+        # Fetch prompt from weekly_aggregators table
+        print("📥 Fetching prompt from weekly_aggregators table...")
+        try:
+            result = supabase.client.table('weekly_aggregators').select('prompt, context_data').eq('device_id', request.device_id).eq('week_start_date', request.week_start_date).execute()
+
+            if not result.data or len(result.data) == 0:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"No data found in weekly_aggregators: device_id={request.device_id}, week_start_date={request.week_start_date}"
+                )
+
+            prompt = result.data[0].get('prompt')
+            context_data = result.data[0].get('context_data', {})
+
+            if not prompt:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"prompt field is empty: device_id={request.device_id}, week_start_date={request.week_start_date}"
+                )
+
+            print(f"  ✅ Prompt fetched successfully: {len(prompt)} chars")
+        except HTTPException:
+            raise
+        except Exception as e:
+            print(f"❌ Failed to fetch prompt: {e}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Prompt fetch error: {str(e)}"
+            )
+
+        # LLM processing (provider abstraction)
+        print(f"📤 Sending to LLM... ({CURRENT_PROVIDER}/{CURRENT_MODEL})")
+        analysis_result = await call_llm_with_retry(prompt)
+        print(f"✅ LLM processing completed")
+
+        # Display result in terminal
+        print("\n" + "="*60)
+        print("📊 Weekly analysis result:")
+        print("="*60)
+        print(json.dumps(analysis_result, ensure_ascii=False, indent=2))
+        print("="*60 + "\n")
+
+        # Extract memorable events and summary from LLM result
+        memorable_events = analysis_result.get('memorable_events', [])
+        week_summary = analysis_result.get('week_summary', '')
+
+        # Prepare data for weekly_results table
+        weekly_results_data = {
+            'device_id': request.device_id,
+            'week_start_date': request.week_start_date,
+            'summary': week_summary,  # LLM output (Japanese)
+            'profile_result': analysis_result,  # Full LLM output (memorable_events included)
+            'processed_count': context_data.get('spot_count', 0),  # Number of recordings processed
+            'llm_model': f"{CURRENT_PROVIDER}/{CURRENT_MODEL}"
+        }
+
+        # Save to weekly_results table (UPSERT)
+        print("💾 Saving to weekly_results table...")
+        try:
+            result = supabase.client.table('weekly_results').upsert(weekly_results_data).execute()
+            print(f"✅ Successfully saved to weekly_results table")
+            save_success = True
+        except Exception as e:
+            print(f"❌ Failed to save to weekly_results table: {e}")
+            save_success = False
+            # Return response even if save fails
+
+        return {
+            "status": "success" if save_success else "partial_success",
+            "message": "Weekly profiler analysis completed" + (" (DB save successful)" if save_success else " (DB save failed)"),
+            "device_id": request.device_id,
+            "week_start_date": request.week_start_date,
+            "analysis_result": analysis_result,
+            "database_save": save_success,
+            "processed_at": datetime.now().isoformat(),
+            "model_used": f"{CURRENT_PROVIDER}/{CURRENT_MODEL}"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        error_details = {
+            "error_type": type(e).__name__,
+            "error_message": str(e),
+            "traceback": traceback.format_exc()
+        }
+
+        print(f"❌ ERROR in weekly_profiler: {error_details}")
+
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "message": "Error occurred during weekly profiler analysis",
                 "error_details": error_details
             }
         )
