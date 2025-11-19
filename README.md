@@ -153,7 +153,7 @@ See `llm_providers.py` - change `CURRENT_PROVIDER` and `CURRENT_MODEL` constants
 | `/health` | GET | ✅ Production | Health check |
 | `/spot-profiler` | POST | ✅ Production | Spot profiler analysis (single recording) |
 | `/daily-profiler` | POST | ✅ Production (2025-11-15) | Daily profiler analysis (1 day) |
-| `/weekly-profiler` | POST | 🚧 Planned | Weekly profiler analysis (7 days) |
+| `/weekly-profiler` | POST | ✅ Experimental (2025-11-19) | Weekly profiler analysis (7 days) - Not in workflow |
 | `/monthly-profiler` | POST | 🚧 Planned | Monthly profiler analysis (30 days) |
 
 ---
@@ -270,30 +270,61 @@ daily_results (1 day = 1 record)
 
 ---
 
-### 4. Weekly Profiler 🚧
+### 4. Weekly Profiler ✅ (Experimental)
 
-**Planned** - Phase 4-3
+**Status**: ✅ Implemented - **Experimental (Not integrated into app/workflow)**
 
 ```bash
 curl -X POST https://api.hey-watch.me/profiler/weekly-profiler \
   -H "Content-Type: application/json" \
   -d '{
-    "device_id": "d067d407-cf73-4174-a9c1-d91fb60d64d0",
-    "week_start_date": "2025-11-11"
+    "device_id": "9f7d6e27-98c3-4c19-bdfb-f7fda58b9a93",
+    "week_start_date": "2025-11-10"
   }'
 ```
 
 **Data Flow**:
 ```
-weekly_aggregators.prompt (7 days of daily_results)
+weekly_aggregators.prompt (spot_features transcriptions for 1 week)
     ↓ LLM Analysis
 weekly_results (1 week = 1 record)
 ```
 
 **Processing Flow**:
 1. Fetch prompt from `weekly_aggregators.prompt`
-2. Execute LLM analysis (7日分のdaily_resultsを分析)
+2. Execute LLM analysis (select 5 memorable events from week's transcriptions)
 3. Save result to `weekly_results` table
+
+**Response Example:**
+```json
+{
+  "status": "success",
+  "message": "Weekly profiler analysis completed (DB save successful)",
+  "device_id": "9f7d6e27-98c3-4c19-bdfb-f7fda58b9a93",
+  "week_start_date": "2025-11-10",
+  "analysis_result": {
+    "memorable_events": [
+      {
+        "rank": 1,
+        "date": "2025-11-16",
+        "time": "21:01",
+        "day_of_week": "日",
+        "event_summary": "幼稚園でインフルエンザが流行し、体調管理の重要性を再認識した瞬間。",
+        "transcription_snippet": "インフルエンザで。幼稚園"
+      }
+    ],
+    "week_summary": "土曜は驚きと深い考察が交錯し、日曜は家族のやり取りと健康について考える週となった。"
+  },
+  "database_save": true,
+  "processed_at": "2025-11-19T03:55:09.241441",
+  "model_used": "groq/openai/gpt-oss-120b"
+}
+```
+
+**Note**:
+- Currently in **experimental phase** - not integrated into app workflow
+- Manually triggered via API call for testing
+- No automated Lambda trigger yet
 
 ---
 
@@ -327,11 +358,11 @@ monthly_results (1 month = 1 record)
 
 ## 📊 Database Structure
 
-### spot_aggregators Table (Input Source)
+### Input Tables (Aggregators)
 
-**Prompt fetch source**
+#### spot_aggregators Table
 
-This API reads prompts from `spot_aggregators.prompt`.
+**Prompt fetch source for Spot Profiler**
 
 ```sql
 CREATE TABLE spot_aggregators (
@@ -344,7 +375,52 @@ CREATE TABLE spot_aggregators (
 );
 ```
 
-### spot_results Table (Output Destination)
+#### daily_aggregators Table
+
+**Prompt fetch source for Daily Profiler**
+
+```sql
+CREATE TABLE daily_aggregators (
+  device_id TEXT NOT NULL,
+  local_date DATE NOT NULL,
+  prompt TEXT NOT NULL,
+  context_data JSONB,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  PRIMARY KEY (device_id, local_date)
+);
+```
+
+#### weekly_aggregators Table ✅ (Experimental)
+
+**Prompt fetch source for Weekly Profiler**
+
+```sql
+CREATE TABLE weekly_aggregators (
+  device_id TEXT NOT NULL,
+  week_start_date DATE NOT NULL,  -- Monday
+  prompt TEXT NOT NULL,
+  context_data JSONB,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  PRIMARY KEY (device_id, week_start_date)
+);
+```
+
+**Context Data Structure:**
+```json
+{
+  "week_range": "2025-11-10 - 2025-11-16",
+  "week_start_date": "2025-11-10",
+  "week_end_date": "2025-11-16",
+  "spot_count": 60,
+  "recording_times": ["2025-11-14T21:01:01.759+00:00", ...]
+}
+```
+
+---
+
+### Output Tables (Results)
+
+#### spot_results Table
 
 **Spot profiler analysis results**
 
@@ -356,6 +432,8 @@ CREATE TABLE spot_results (
   profile_result JSONB NOT NULL,     -- Full analysis result
   summary TEXT,                       -- Dashboard display summary (Japanese)
   behavior TEXT,                      -- Detected behaviors (comma-separated, 3 items)
+  local_date DATE,
+  local_time TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   llm_model TEXT NULL,
   PRIMARY KEY (device_id, recorded_at)
@@ -375,6 +453,76 @@ CREATE TABLE spot_results (
   - `key_observations`: Notable findings (Japanese array)
 - `llm_model`: Model used (e.g., "groq/openai/gpt-oss-120b")
 - `created_at`: Auto-generated timestamp
+
+---
+
+#### daily_results Table
+
+**Daily profiler analysis results**
+
+```sql
+CREATE TABLE daily_results (
+  device_id TEXT NOT NULL,
+  local_date DATE NOT NULL,
+  vibe_score DOUBLE PRECISION,
+  summary TEXT,
+  burst_events JSONB,
+  vibe_scores JSONB,  -- Array of {time, score}
+  processed_count INTEGER,
+  llm_model TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  PRIMARY KEY (device_id, local_date)
+);
+```
+
+**Saved Fields:**
+- `vibe_score`: Average vibe score for the day
+- `summary`: Daily summary in Japanese
+- `burst_events`: Notable events array (from LLM)
+- `vibe_scores`: Time-based array `[{time: "12:30", score: 45}, ...]`
+- `processed_count`: Number of spot recordings analyzed
+- `llm_model`: Model used
+
+---
+
+#### weekly_results Table ✅ (Experimental)
+
+**Weekly profiler analysis results**
+
+```sql
+CREATE TABLE weekly_results (
+  device_id TEXT NOT NULL,
+  week_start_date DATE NOT NULL,  -- Monday
+  summary TEXT,                    -- Week summary (Japanese)
+  memorable_events JSONB,          -- Top 5 memorable events
+  profile_result JSONB,            -- Full LLM response
+  processed_count INTEGER,         -- Number of recordings analyzed
+  llm_model TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  PRIMARY KEY (device_id, week_start_date)
+);
+```
+
+**Saved Fields:**
+- `summary`: Weekly summary in Japanese (2-3 sentences)
+- `memorable_events`: Top 5 memorable events array (JSONB)
+  ```json
+  [
+    {
+      "rank": 1,
+      "date": "2025-11-16",
+      "time": "21:01",
+      "day_of_week": "日",
+      "event_summary": "幼稚園でインフルエンザが流行し、体調管理の重要性を再認識した瞬間。",
+      "transcription_snippet": "インフルエンザで。幼稚園"
+    }
+  ]
+  ```
+- `profile_result`: Full LLM output (JSONB, contains `memorable_events` and `week_summary`)
+- `processed_count`: Number of spot recordings analyzed (e.g., 60)
+- `llm_model`: Model used (e.g., "groq/openai/gpt-oss-120b")
+
+**Note**: This table is currently in **experimental phase** and not integrated into the app workflow.
 
 ---
 
