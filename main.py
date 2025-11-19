@@ -515,6 +515,7 @@ async def weekly_profiler(request: WeeklyProfilerRequest):
             'device_id': request.device_id,
             'week_start_date': request.week_start_date,
             'summary': week_summary,  # LLM output (Japanese)
+            'memorable_events': memorable_events,  # Top 5 memorable events (JSONB array)
             'profile_result': analysis_result,  # Full LLM output (memorable_events included)
             'processed_count': context_data.get('spot_count', 0),  # Number of recordings processed
             'llm_model': f"{CURRENT_PROVIDER}/{CURRENT_MODEL}"
