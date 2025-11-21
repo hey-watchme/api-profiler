@@ -87,19 +87,35 @@ jobs:
     needs: deploy
 
     steps:
-    # Step 1: Setup SSH agent
+    # Step 1: Checkout code
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    # Step 2: Setup SSH agent
     - name: Setup SSH Agent
       uses: webfactory/ssh-agent@v0.9.0
       with:
         ssh-private-key: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
 
-    # Step 2: Add EC2 to known hosts (security improvement)
+    # Step 3: Add EC2 to known hosts (security improvement)
     - name: Add EC2 to known hosts
       run: |
         mkdir -p ~/.ssh
         ssh-keyscan -H 3.24.16.82 >> ~/.ssh/known_hosts
 
-    # Step 3: Create/Update .env file on EC2
+    # Step 4: Create application directory on EC2 if not exists
+    - name: Create application directory on EC2
+      run: |
+        ssh ubuntu@3.24.16.82 "mkdir -p /home/ubuntu/profiler-api"
+
+    # Step 5: Copy deployment files to EC2
+    - name: Copy deployment files to EC2
+      run: |
+        scp docker-compose.prod.yml ubuntu@3.24.16.82:/home/ubuntu/profiler-api/
+        scp run-prod.sh ubuntu@3.24.16.82:/home/ubuntu/profiler-api/
+        ssh ubuntu@3.24.16.82 "chmod +x /home/ubuntu/profiler-api/run-prod.sh"
+
+    # Step 6: Create/Update .env file on EC2
     - name: Create/Update .env file on EC2
       env:
         OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
@@ -116,7 +132,7 @@ jobs:
           echo "✅ .env file created/updated successfully"
         ENDSSH
 
-    # Step 4: Deploy to EC2 instance
+    # Step 7: Deploy to EC2 instance
     - name: Deploy to EC2 instance
       run: |
         echo "🚀 Starting deployment to EC2..."
@@ -124,45 +140,29 @@ jobs:
         # SSH to EC2 and execute deployment commands
         ssh ubuntu@3.24.16.82 << 'ENDSSH'
           set -e
-          echo "📦 Starting deployment..."
+          echo "📦 Navigating to application directory..."
+          cd /home/ubuntu/profiler-api
 
-          # Stop and remove existing container
-          echo "🛑 Stopping existing container..."
-          docker rm -f profiler-api 2>/dev/null || true
+          echo "🔄 Running deployment script..."
+          ./run-prod.sh
 
-          # Login to ECR
-          echo "🔐 Logging in to ECR..."
-          aws ecr get-login-password --region ap-southeast-2 | \
-            docker login --username AWS --password-stdin 754724220380.dkr.ecr.ap-southeast-2.amazonaws.com
+          echo "✅ Deployment script completed"
 
-          # Pull latest image
-          echo "📥 Pulling latest image..."
-          docker pull 754724220380.dkr.ecr.ap-southeast-2.amazonaws.com/watchme-profiler:latest
+          # Container status check
+          echo "📊 Checking container status..."
+          docker ps | grep profiler-api || echo "⚠️ Container not found"
 
-          # Restart systemd service
-          echo "🔄 Restarting service..."
-          sudo systemctl restart profiler-api
-
-          # Check service status
-          echo "📊 Checking service status..."
-          sleep 5
-          if sudo systemctl is-active --quiet profiler-api; then
-            echo "✅ Service profiler-api is running"
-          else
-            echo "❌ Service profiler-api failed to start"
-            sudo journalctl -u profiler-api -n 50
-            exit 1
-          fi
-
-          # Health check
-          echo "🏥 Running health check..."
-          sleep 3
-          if curl -f http://localhost:8051/health; then
-            echo "✅ Health check passed"
-          else
-            echo "❌ Health check failed"
-            exit 1
-          fi
+          # Health check (max 60 seconds)
+          echo "🏥 Running health check (max 60 seconds)..."
+          for i in {1..12}; do
+            if curl -f http://localhost:8051/health > /dev/null 2>&1; then
+              echo "✅ Health check passed (attempt $i/12)"
+              curl -s http://localhost:8051/health | python3 -m json.tool 2>/dev/null || curl http://localhost:8051/health
+              break
+            fi
+            echo "  Attempt $i/12 failed, retrying in 5 seconds..."
+            sleep 5
+          done
         ENDSSH
 
         echo "✅ EC2 deployment completed successfully!"
