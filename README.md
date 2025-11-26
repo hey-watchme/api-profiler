@@ -12,10 +12,10 @@ Psychological profiling service using LLM analysis
 
 | Item | Value |
 |------|-------|
-| **LLM Provider** | Groq |
-| **Model** | openai/gpt-oss-120b (reasoning model) |
-| **Reasoning Effort** | medium |
-| **Deploy Date** | 2025-11-13 |
+| **LLM Provider** | OpenAI |
+| **Model** | gpt-5-nano |
+| **Reasoning Effort** | N/A |
+| **Deploy Date** | 2025-11-26 |
 | **Status** | healthy ✅ |
 
 **Health Check**:
@@ -27,8 +27,8 @@ curl https://api.hey-watch.me/profiler/health | jq
 ```json
 {
   "status": "healthy",
-  "llm_provider": "groq",
-  "llm_model": "openai/gpt-oss-120b"
+  "llm_provider": "openai",
+  "llm_model": "gpt-5-nano"
 }
 ```
 
@@ -126,9 +126,8 @@ This API **supports multiple LLM providers** and can be easily switched.
 
 ### Currently In Use
 
-- Provider: **Groq**
-- Model: **openai/gpt-oss-120b** (reasoning model)
-- Reasoning Effort: **medium**
+- Provider: **OpenAI**
+- Model: **gpt-5-nano**
 
 ### Supported Providers
 
@@ -212,7 +211,7 @@ curl -X POST https://api.hey-watch.me/profiler/spot-profiler \
   },
   "database_save": true,
   "processed_at": "2025-11-13T12:35:00.000Z",
-  "model_used": "groq/openai/gpt-oss-120b"
+  "model_used": "openai/gpt-5-nano"
 }
 ```
 
@@ -264,7 +263,7 @@ daily_results (1 day = 1 record)
   },
   "database_save": true,
   "processed_at": "2025-11-15T02:00:00.000Z",
-  "model_used": "groq/openai/gpt-oss-120b"
+  "model_used": "openai/gpt-5-nano"
 }
 ```
 
@@ -317,7 +316,7 @@ weekly_results (1 week = 1 record)
   },
   "database_save": true,
   "processed_at": "2025-11-19T03:55:09.241441",
-  "model_used": "groq/openai/gpt-oss-120b"
+  "model_used": "openai/gpt-5-nano"
 }
 ```
 
@@ -451,7 +450,7 @@ CREATE TABLE spot_results (
   - `behavioral_analysis`: Detected activities, behavior pattern (Japanese), situation context (Japanese)
   - `acoustic_metrics`: Speech ratio, loudness, voice stability, pitch variability
   - `key_observations`: Notable findings (Japanese array)
-- `llm_model`: Model used (e.g., "groq/openai/gpt-oss-120b")
+- `llm_model`: Model used (e.g., "openai/gpt-5-nano")
 - `created_at`: Auto-generated timestamp
 
 ---
@@ -520,7 +519,7 @@ CREATE TABLE weekly_results (
   ```
 - `profile_result`: Full LLM output (JSONB, contains `memorable_events` and `week_summary`)
 - `processed_count`: Number of spot recordings analyzed (e.g., 60)
-- `llm_model`: Model used (e.g., "groq/openai/gpt-oss-120b")
+- `llm_model`: Model used (e.g., "openai/gpt-5-nano")
 
 **Note**: This table is currently in **experimental phase** and not integrated into the app workflow.
 

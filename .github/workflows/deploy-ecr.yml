@@ -188,7 +188,7 @@ jobs:
         echo "📦 Service: ${{ env.SERVICE_NAME }}"
         echo "🌐 URL: https://api.hey-watch.me/profiler/"
         echo "🏷️ Version: ${{ github.sha }}"
-        echo "🤖 LLM Provider: Groq (openai/gpt-oss-120b)"
+        echo "🤖 LLM Provider: OpenAI (gpt-5-nano)"
 
     # Step 7: Deployment failure notification
     - name: Deployment Failure Notification

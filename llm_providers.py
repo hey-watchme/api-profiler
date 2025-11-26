@@ -14,8 +14,8 @@ from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_excep
 # 🔧 現在使用中のLLMプロバイダー設定
 # ==========================================
 # この行を変更するだけでプロバイダーを切り替え可能
-CURRENT_PROVIDER = "groq"  # "openai" または "groq"
-CURRENT_MODEL = "openai/gpt-oss-120b"
+CURRENT_PROVIDER = "openai"  # "openai" または "groq"
+CURRENT_MODEL = "gpt-5-nano"
 # Groq推論モデル用の設定（openai/で始まるモデルの場合のみ使用）
 CURRENT_REASONING_EFFORT = "medium"  # "low", "medium", "high"
 CURRENT_MAX_COMPLETION_TOKENS = 8192
