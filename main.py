@@ -204,6 +204,7 @@ async def spot_profiler(request: SpotProfilerRequest):
             'summary': analysis_result.get('summary'),  # Dashboard summary (Japanese)
             'behavior': analysis_result.get('behavior'),  # Detected behaviors (comma-separated)
             'emotion': analysis_result.get('emotion'),  # Top 1-2 significant emotions (comma-separated)
+            'rating': analysis_result.get('rating'),  # Importance rating (0-5)
             'llm_model': f"{CURRENT_PROVIDER}/{CURRENT_MODEL}"
         }
 
